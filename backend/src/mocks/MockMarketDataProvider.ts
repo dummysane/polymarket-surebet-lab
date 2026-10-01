@@ -5,7 +5,7 @@
  */
 import type { Market, MarketSnapshot } from '@paperlab/shared';
 import { logEvent } from '../utils/logger.js';
-import type { MarketDataProvider, MarketUpdateHandler } from './MarketDataProvider.js';
+import type { MarketDataProvider, MarketUpdateHandler } from '../market-data/MarketDataProvider.js';
 
 function mockMarket(id: string, yesPrice: number, overrides: Partial<Market> = {}): Market {
   const noPrice = Math.max(0.01, Math.min(0.99, 1 - yesPrice));
