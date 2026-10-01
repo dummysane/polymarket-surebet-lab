@@ -79,7 +79,7 @@ export default function Dashboard() {
         <div>
           <h1 className="text-2xl font-medium">Dashboard</h1>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Surebet LIVE paper — 1ª pata favorito (1.60–1.80), 2ª pata ≥5%
+            Surebet LIVE por fases: F1 favorito 1.60–1.80 → F2 wait → F3 ≥5% (paper)
           </p>
         </div>
         <div className="flex gap-2">

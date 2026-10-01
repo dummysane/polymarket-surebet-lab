@@ -3,7 +3,11 @@ import {
   computeTargetOdds,
   computeTargetPrice,
   distanceToTarget,
+  isSurebetReady,
   priceToOdds,
+  surebetProfitPct,
+  type ArbAction,
+  type ArbPhase,
   type MarketContext,
   type StrategyConfig,
   type StrategySignal,
@@ -11,14 +15,17 @@ import {
 import type { Strategy } from './Strategy.js';
 
 /**
- * LiveSurebetArbitrage — paper-only surebet strategy.
+ * Arbitraje surebet LIVE por fases (PAPER ONLY — nunca órdenes reales).
  *
- * Flow (SIMULATED, never real orders):
- * 1. Only LIVE in-play markets
- * 2. Open first leg on the FAVORITE when odds ∈ [minOdds, maxOdds] (default 1.60–1.80)
- * 3. Compute underdog target so that 1/favOdds + 1/dogOdds ≤ 1/(1+targetProfit)
- *    → locks ≥ targetProfit (default 5%) gross surebet when second leg fills
- * 4. When underdog price rises enough (odds fall to target), simulate second leg
+ * F0_SCAN_LIVE        → solo mercados in-play
+ * F1_OPEN_FAVORITE    → favorito en [minOdds, maxOdds] (def. 1.60–1.80) → abrir 1ª pata
+ * F2_WAIT_UNDERDOG    → 1ª pata abierta; vigilar underdog hasta objetivo
+ * F3_COMPLETE_SUREBET → underdog alcanza cuota que cierra surebet ≥ targetProfit (5%)
+ * F4_LOCKED           → ambas patas simuladas; beneficio bloqueado (lo gestiona paper engine)
+ *
+ * Matemática surebet:
+ *   1/favOdds + 1/dogOdds ≤ 1/(1+targetProfit)
+ *   targetDogOdds = 1 / (1/(1+targetProfit) - 1/favOdds)
  */
 export class LiveSurebetArbitrageStrategy implements Strategy {
   readonly name = STRATEGY_NAME;
@@ -30,22 +37,34 @@ export class LiveSurebetArbitrageStrategy implements Strategy {
     const { market } = context;
     if (!market.active || market.closed) return null;
 
-    // LIVE ONLY — pre-match markets are ignored
+    // ─── F0: solo LIVE ───────────────────────────────────────────
     if (!market.isLive) return null;
 
-    const yesOdds = priceToOdds(market.yes.price);
-    const noOdds = priceToOdds(market.no.price);
-    const favoriteIsYes = market.yes.price >= market.no.price;
-    const favoriteOdds = favoriteIsYes ? yesOdds : noOdds;
-    const favoritePrice = favoriteIsYes ? market.yes.price : market.no.price;
-    const favoriteSide = favoriteIsYes ? 'YES' : 'NO';
-    const hedgeSide = favoriteIsYes ? 'NO' : 'YES';
-    const hedgeQuote = favoriteIsYes ? market.no : market.yes;
-    const underdogOddsNow = favoriteIsYes ? noOdds : yesOdds;
+    // Si ya hay 1ª pata abierta → evaluar F2 / F3
+    if (context.openFirstLeg) {
+      return this.evaluateWaitOrComplete(context);
+    }
 
+    // Sin posición → evaluar F1 (apertura favorito)
+    return this.evaluateOpenFavorite(context);
+  }
+
+  /** F1 — detectar favorito en rango y proponer apertura de 1ª pata */
+  private evaluateOpenFavorite(context: MarketContext): StrategySignal | null {
+    const { market } = context;
+    const legs = this.resolveLegs(market.yes, market.no);
+    if (!legs) return null;
+
+    const { favoriteOdds, favoritePrice, favoriteSide, hedgeSide, hedgeQuote, underdogOdds } =
+      legs;
+
+    // Favorito debe estar en banda configurable (default 1.60–1.80)
     if (favoriteOdds < this.cfg.minOdds || favoriteOdds > this.cfg.maxOdds) {
       return null;
     }
+
+    const liquidity = legs.favQuote.liquidity ?? market.liquidity ?? 0;
+    if (liquidity < this.cfg.minLiquidity) return null;
 
     let targetOdds: number;
     let targetPrice: number;
@@ -56,55 +75,210 @@ export class LiveSurebetArbitrageStrategy implements Strategy {
       return null;
     }
 
-    // Implied surebet edge if we could fill both legs at current prices
-    const impliedSum = 1 / favoriteOdds + 1 / underdogOddsNow;
-    const surebetComplete = impliedSum <= 1 / (1 + this.cfg.targetProfit);
-    const lockedProfitIfComplete = surebetComplete ? 1 / impliedSum - 1 : null;
-
     const dist = distanceToTarget(hedgeQuote.price, targetPrice);
+    const sum = 1 / favoriteOdds + 1 / underdogOdds;
+    const alreadySurebet = isSurebetReady(favoriteOdds, underdogOdds, this.cfg.targetProfit);
+    const profitNow = surebetProfitPct(favoriteOdds, underdogOdds);
+
+    // Si YA hay surebet completa al detectar favorito, acción = completar ambas
+    // (en paper abrimos 1ª y 2ª en secuencia). Si no, abrimos 1ª y esperamos.
+    const phase: ArbPhase = alreadySurebet ? 'F3_COMPLETE_SUREBET' : 'F1_OPEN_FAVORITE';
+
+    return this.buildSignal(context, {
+      favoriteSide,
+      hedgeSide,
+      favoritePrice,
+      favoriteOdds,
+      targetOdds,
+      targetPrice,
+      underdogOdds,
+      underdogPrice: hedgeQuote.price,
+      surebetSum: sum,
+      surebetProfitPct: profitNow,
+      arbPhase: phase,
+      action: 'OPEN_FIRST_LEG',
+      distanceToTarget: dist,
+      edge: alreadySurebet ? (profitNow ?? this.cfg.targetProfit) : Math.max(0, this.cfg.targetProfit * 0.1),
+      confidence: alreadySurebet ? 0.9 : 0.55,
+      reason: [
+        `F0 LIVE ✓`,
+        `F1 FAVORITO ${favoriteSide} @ ${favoriteOdds.toFixed(2)} (banda ${this.cfg.minOdds}–${this.cfg.maxOdds})`,
+        `objetivo underdog ${hedgeSide} cuota ${targetOdds.toFixed(2)}`,
+        `underdog ahora ${underdogOdds.toFixed(2)} · dist ${(dist * 100).toFixed(1)}%`,
+        alreadySurebet
+          ? `F3 SUREBET YA LISTA ~${((profitNow ?? 0) * 100).toFixed(1)}% → abrir 1ª y completar`
+          : `F2 tras apertura: esperar underdog para ≥${(this.cfg.targetProfit * 100).toFixed(0)}%`,
+      ].join(' | '),
+    });
+  }
+
+  /** F2 / F3 — con 1ª pata abierta: ¿ya se puede cerrar la surebet? */
+  private evaluateWaitOrComplete(context: MarketContext): StrategySignal | null {
+    const open = context.openFirstLeg!;
+    const { market } = context;
+    const hedgeSide = open.entrySide === 'YES' ? 'NO' : 'YES';
+    const hedgeQuote = hedgeSide === 'YES' ? market.yes : market.no;
+    const underdogOdds = priceToOdds(hedgeQuote.price);
+    const favoriteOdds = open.entryOdds;
+    const sum = 1 / favoriteOdds + 1 / underdogOdds;
+    const ready = isSurebetReady(favoriteOdds, underdogOdds, this.cfg.targetProfit);
+    const profit = surebetProfitPct(favoriteOdds, underdogOdds);
+    const dist = distanceToTarget(hedgeQuote.price, open.targetPrice);
+
     const liquidity = hedgeQuote.liquidity ?? market.liquidity ?? 0;
-    if (liquidity < this.cfg.minLiquidity) {
-      return null;
+    if (liquidity < this.cfg.minLiquidity && ready) {
+      // surebet math ok but no liquidity — keep waiting
+      return this.buildSignal(context, {
+        favoriteSide: open.entrySide,
+        hedgeSide,
+        favoritePrice: 1 / favoriteOdds,
+        favoriteOdds,
+        targetOdds: open.targetOdds,
+        targetPrice: open.targetPrice,
+        underdogOdds,
+        underdogPrice: hedgeQuote.price,
+        surebetSum: sum,
+        surebetProfitPct: profit,
+        arbPhase: 'F2_WAIT_UNDERDOG',
+        action: 'MONITOR_UNDERDOG',
+        distanceToTarget: dist,
+        edge: 0,
+        confidence: 0.4,
+        reason: `F2 WAIT | surebet math OK pero liquidez insuficiente (${liquidity.toFixed(0)}) | trade ${open.tradeId}`,
+      });
     }
 
-    const edge = surebetComplete
-      ? (lockedProfitIfComplete ?? this.cfg.targetProfit)
-      : Math.max(0, -dist);
-    const confidence = Math.min(
-      1,
-      Math.max(0.15, surebetComplete ? 0.95 : 1 - Math.min(1, Math.abs(dist))),
-    );
+    if (ready) {
+      return this.buildSignal(context, {
+        favoriteSide: open.entrySide,
+        hedgeSide,
+        favoritePrice: 1 / favoriteOdds,
+        favoriteOdds,
+        targetOdds: open.targetOdds,
+        targetPrice: open.targetPrice,
+        underdogOdds,
+        underdogPrice: hedgeQuote.price,
+        surebetSum: sum,
+        surebetProfitPct: profit,
+        arbPhase: 'F3_COMPLETE_SUREBET',
+        action: 'COMPLETE_SECOND_LEG',
+        distanceToTarget: dist,
+        edge: profit ?? this.cfg.targetProfit,
+        confidence: 0.95,
+        reason: [
+          `F3 COMPLETE SUREBET`,
+          `1ª pata ${open.entrySide} @ ${favoriteOdds.toFixed(2)}`,
+          `2ª pata ${hedgeSide} @ ${underdogOdds.toFixed(2)}`,
+          `suma implícita ${sum.toFixed(4)}`,
+          `beneficio bruto bloqueable ~${((profit ?? 0) * 100).toFixed(2)}% ≥ ${(this.cfg.targetProfit * 100).toFixed(0)}%`,
+          `trade ${open.tradeId}`,
+        ].join(' | '),
+      });
+    }
+
+    return this.buildSignal(context, {
+      favoriteSide: open.entrySide,
+      hedgeSide,
+      favoritePrice: 1 / favoriteOdds,
+      favoriteOdds,
+      targetOdds: open.targetOdds,
+      targetPrice: open.targetPrice,
+      underdogOdds,
+      underdogPrice: hedgeQuote.price,
+      surebetSum: sum,
+      surebetProfitPct: profit,
+      arbPhase: 'F2_WAIT_UNDERDOG',
+      action: 'MONITOR_UNDERDOG',
+      distanceToTarget: dist,
+      edge: Math.max(0, -dist),
+      confidence: Math.min(0.8, Math.max(0.2, 1 - Math.abs(dist))),
+      reason: [
+        `F2 WAIT UNDERDOG`,
+        `favorito fijado @ ${favoriteOdds.toFixed(2)}`,
+        `underdog ahora ${underdogOdds.toFixed(2)} → objetivo ${open.targetOdds.toFixed(2)}`,
+        `distancia ${(dist * 100).toFixed(1)}%`,
+        `suma ${sum.toFixed(4)} (surebet si ≤ ${(1 / (1 + this.cfg.targetProfit)).toFixed(4)})`,
+      ].join(' | '),
+    });
+  }
+
+  private resolveLegs(
+    yes: { price: number; liquidity: number | null },
+    no: { price: number; liquidity: number | null },
+  ) {
+    try {
+      const yesOdds = priceToOdds(yes.price);
+      const noOdds = priceToOdds(no.price);
+      const favoriteIsYes = yes.price >= no.price;
+      return {
+        favoriteIsYes,
+        favoriteOdds: favoriteIsYes ? yesOdds : noOdds,
+        favoritePrice: favoriteIsYes ? yes.price : no.price,
+        favoriteSide: (favoriteIsYes ? 'YES' : 'NO') as 'YES' | 'NO',
+        hedgeSide: (favoriteIsYes ? 'NO' : 'YES') as 'YES' | 'NO',
+        favQuote: favoriteIsYes ? yes : no,
+        hedgeQuote: favoriteIsYes ? no : yes,
+        underdogOdds: favoriteIsYes ? noOdds : yesOdds,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private buildSignal(
+    context: MarketContext,
+    p: {
+      favoriteSide: 'YES' | 'NO';
+      hedgeSide: 'YES' | 'NO';
+      favoritePrice: number;
+      favoriteOdds: number;
+      targetOdds: number;
+      targetPrice: number;
+      underdogOdds: number;
+      underdogPrice: number;
+      surebetSum: number;
+      surebetProfitPct: number | null;
+      arbPhase: ArbPhase;
+      action: ArbAction;
+      distanceToTarget: number;
+      edge: number;
+      confidence: number;
+      reason: string;
+    },
+  ): StrategySignal {
+    // Attach live liquidity from market quotes
+    const m = context.market;
+    const favLiq = p.favoriteSide === 'YES' ? m.yes.liquidity : m.no.liquidity;
+    const dogLiq = p.hedgeSide === 'YES' ? m.yes.liquidity : m.no.liquidity;
+    void favLiq;
+    void dogLiq;
 
     return {
-      marketId: market.id,
-      eventId: market.eventId,
+      marketId: m.id,
+      eventId: m.eventId,
       timestamp: context.now,
-      side: favoriteSide,
-      hedgeSide,
-      entryPrice: favoritePrice,
-      entryOdds: favoriteOdds,
-      expectedPrice: targetPrice,
-      targetOdds,
-      edge,
-      confidence,
+      side: p.favoriteSide,
+      hedgeSide: p.hedgeSide,
+      entryPrice: p.favoritePrice,
+      entryOdds: p.favoriteOdds,
+      expectedPrice: p.targetPrice,
+      targetOdds: p.targetOdds,
+      underdogOddsNow: p.underdogOdds,
+      underdogPriceNow: p.underdogPrice,
+      surebetSum: p.surebetSum,
+      surebetProfitPct: p.surebetProfitPct,
+      arbPhase: p.arbPhase,
+      action: p.action,
+      edge: p.edge,
+      confidence: p.confidence,
       recommendedStake: 0,
-      reason: [
-        `LIVE SUREBET`,
-        `1ª pata FAVORITO ${favoriteSide} @ ${favoriteOdds.toFixed(2)}`,
-        `2ª pata ${hedgeSide} objetivo cuota ${targetOdds.toFixed(2)} (precio ${targetPrice.toFixed(4)})`,
-        `underdog ahora ${underdogOddsNow.toFixed(2)}`,
-        `distancia ${(dist * 100).toFixed(1)}%`,
-        surebetComplete
-          ? `SUREBET LISTA ~${((lockedProfitIfComplete ?? 0) * 100).toFixed(1)}%`
-          : `esperando emparejamiento ≥${(this.cfg.targetProfit * 100).toFixed(0)}%`,
-      ].join(' | '),
+      reason: p.reason,
       strategyName: this.name,
-      distanceToTarget: dist,
+      distanceToTarget: p.distanceToTarget,
       dataKind: 'ESTIMATED',
       mode: context.mode,
     };
   }
 }
 
-/** @deprecated alias — use LiveSurebetArbitrageStrategy */
 export { LiveSurebetArbitrageStrategy as FavoriteHedgeStrategy };

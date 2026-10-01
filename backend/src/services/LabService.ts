@@ -178,11 +178,28 @@ export class LabService {
       const report = latest[0] ? this.quality.evaluate(latest[0], market) : null;
       if (report && !this.quality.allowsSignals(report)) continue;
 
+      const openTrade = this.paper
+        .getTrades()
+        .find(
+          (t) =>
+            t.marketId === market.id &&
+            (t.status === 'FIRST_LEG_OPENED' || t.status === 'TARGET_REACHED'),
+        );
+
       const context: MarketContext = {
         market,
         snapshots: this.store.getSnapshots(market.id, 50),
         now: new Date().toISOString(),
         mode: config.marketDataMode === 'live' ? 'LIVE' : 'PAPER',
+        openFirstLeg: openTrade
+          ? {
+              entryOdds: openTrade.entryOdds,
+              entrySide: openTrade.entrySide,
+              targetOdds: openTrade.targetOdds,
+              targetPrice: openTrade.targetPrice,
+              tradeId: openTrade.tradeId,
+            }
+          : null,
       };
 
       const found = this.strategyEngine.evaluate(context);
@@ -191,29 +208,44 @@ export class LabService {
         this.store.addSignal(signal);
         signals.push(signal);
 
-        if (signal.distanceToTarget < this.targetNearThreshold) {
+        if (signal.arbPhase === 'F2_WAIT_UNDERDOG' && signal.distanceToTarget < this.targetNearThreshold) {
           this.alerts.push(
             'TARGET_NEAR',
-            `Target within ${(Math.abs(signal.distanceToTarget) * 100).toFixed(1)}% — ${market.question}`,
+            `F2→F3 cerca (${(Math.abs(signal.distanceToTarget) * 100).toFixed(1)}%) — ${market.question}`,
+            'info',
+            { marketId: market.id, phase: signal.arbPhase },
+          );
+        }
+
+        if (signal.arbPhase === 'F3_COMPLETE_SUREBET') {
+          this.alerts.push(
+            'TARGET_REACHED',
+            `F3 SUREBET lista ~${((signal.surebetProfitPct ?? 0) * 100).toFixed(1)}% — ${market.question}`,
             'info',
             { marketId: market.id },
           );
         }
 
-        this.alerts.push('OPPORTUNITY', `Paper signal: ${market.question}`, 'info', {
-          marketId: market.id,
-          distance: signal.distanceToTarget,
-        });
-
-        if (this.autoTrade && signal.distanceToTarget < 0.25) {
+        // Solo F1 abre 1ª pata paper. F3 sobre posición abierta lo cierra el PaperTradingEngine vía ticks.
+        if (this.autoTrade && signal.action === 'OPEN_FIRST_LEG' && !openTrade) {
           await this.tryOpen(signal, market);
         }
       }
     }
 
     this.opportunities = [...signals, ...this.opportunities]
-      .filter((s, i, arr) => arr.findIndex((x) => x.marketId === s.marketId) === i)
-      .sort((a, b) => a.distanceToTarget - b.distanceToTarget)
+      .filter((s, i, arr) => arr.findIndex((x) => x.marketId === s.marketId && x.arbPhase === s.arbPhase) === i)
+      .sort((a, b) => {
+        const phaseRank: Record<string, number> = {
+          F3_COMPLETE_SUREBET: 0,
+          F1_OPEN_FAVORITE: 1,
+          F2_WAIT_UNDERDOG: 2,
+        };
+        const ra = phaseRank[a.arbPhase] ?? 9;
+        const rb = phaseRank[b.arbPhase] ?? 9;
+        if (ra !== rb) return ra - rb;
+        return a.distanceToTarget - b.distanceToTarget;
+      })
       .slice(0, 100);
 
     this.checkDrawdown();

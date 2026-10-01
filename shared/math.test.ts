@@ -115,3 +115,17 @@ describe('seeded rng', () => {
     expect([a(), a(), a()]).toEqual([b(), b(), b()]);
   });
 });
+
+describe('surebet readiness', () => {
+  it('favorite 1.70 with target dog locks ~5%', async () => {
+    const { computeTargetOdds, isSurebetReady, surebetProfitPct } = await import('./src/math/index.js');
+    const dog = computeTargetOdds(1.7, 0.05);
+    expect(isSurebetReady(1.7, dog, 0.05)).toBe(true);
+    expect(surebetProfitPct(1.7, dog)!).toBeGreaterThanOrEqual(0.049);
+  });
+
+  it('rejects incomplete arb', async () => {
+    const { isSurebetReady } = await import('./src/math/index.js');
+    expect(isSurebetReady(1.7, 2.0, 0.05)).toBe(false);
+  });
+});

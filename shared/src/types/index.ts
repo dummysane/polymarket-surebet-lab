@@ -129,11 +129,32 @@ export interface MarketSnapshot {
   dataKind: DataKind;
 }
 
+export type ArbPhase =
+  | 'F0_SCAN_LIVE'
+  | 'F1_OPEN_FAVORITE'
+  | 'F2_WAIT_UNDERDOG'
+  | 'F3_COMPLETE_SUREBET'
+  | 'F4_LOCKED';
+
+export type ArbAction =
+  | 'NONE'
+  | 'OPEN_FIRST_LEG'
+  | 'MONITOR_UNDERDOG'
+  | 'COMPLETE_SECOND_LEG';
+
 export interface MarketContext {
   market: Market;
   snapshots: MarketSnapshot[];
   now: string;
   mode: RunMode;
+  /** If a paper first-leg is already open on this market */
+  openFirstLeg?: {
+    entryOdds: number;
+    entrySide: TradeSide;
+    targetOdds: number;
+    targetPrice: number;
+    tradeId: string;
+  } | null;
 }
 
 export interface StrategySignal {
@@ -146,6 +167,12 @@ export interface StrategySignal {
   entryOdds: number;
   expectedPrice: number;
   targetOdds: number;
+  underdogOddsNow: number;
+  underdogPriceNow: number;
+  surebetSum: number;
+  surebetProfitPct: number | null;
+  arbPhase: ArbPhase;
+  action: ArbAction;
   edge: number;
   confidence: number;
   recommendedStake: number;

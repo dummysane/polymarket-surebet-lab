@@ -3,7 +3,10 @@ import {
   computeHedgeStake,
   computeTradePnl,
   createSeededRng,
+  isSurebetReady,
+  priceToOdds,
   simulateLiquidityFill,
+  surebetProfitPct,
   type Market,
   type PaperTrade,
   type PaperTradeEvent,
@@ -72,9 +75,10 @@ export class PaperTradingEngine {
       trade.maxPriceReached = Math.max(trade.maxPriceReached ?? trade.entryPrice, price);
     }
 
-    // Check hedge target on opposite side
+    // F2→F3: underdog price move — complete surebet only if math locks ≥ targetProfit
     if (side !== trade.entrySide && trade.status === 'FIRST_LEG_OPENED') {
-      if (price <= trade.targetPrice * (1 + this.strategyConfig.maxSlippage)) {
+      const underdogOdds = priceToOdds(price);
+      if (isSurebetReady(trade.entryOdds, underdogOdds, this.strategyConfig.targetProfit)) {
         void this.tryHedge(trade, price, timestamp);
       }
     }
@@ -203,9 +207,11 @@ export class PaperTradingEngine {
     trade.status = 'FIRST_LEG_OPENED';
     this.openByMarket.set(signal.marketId, tradeId);
     this.pushEvent(tradeId, 'FIRST_LEG_OPENED', {
+      phase: 'F1_OPEN_FAVORITE',
       price: slipped,
       stake: filledStake,
       targetPrice: signal.expectedPrice,
+      targetOdds: signal.targetOdds,
       market: market.question,
     });
     this.pushEvent(tradeId, 'SLIPPAGE_APPLIED', {
@@ -227,6 +233,8 @@ export class PaperTradingEngine {
       observedPrice,
       targetPrice: trade.targetPrice,
       timestamp,
+      phase: 'F3_COMPLETE_SUREBET',
+      lockedPct: surebetProfitPct(trade.entryOdds, priceToOdds(observedPrice)),
     });
     trade.status = 'TARGET_REACHED';
     trade.timeToTargetMs = Date.parse(timestamp) - Date.parse(trade.timestamp);
@@ -242,17 +250,19 @@ export class PaperTradingEngine {
     }
 
     const slipped = applySlippage(observedPrice, this.strategyConfig.maxSlippage, 'BUY');
-    if (slipped > trade.targetPrice * (1 + this.strategyConfig.maxSlippage)) {
+    const hedgeOdds = 1 / slipped;
+    if (!isSurebetReady(trade.entryOdds, hedgeOdds, this.strategyConfig.targetProfit)) {
       this.pushEvent(trade.tradeId, 'NO_EXECUTION', {
-        reason: 'HEDGE_SLIPPAGE_EXCEEDED',
+        reason: 'SUREBET_BROKEN_AFTER_SLIPPAGE',
         slipped,
-        target: trade.targetPrice,
+        hedgeOdds,
+        entryOdds: trade.entryOdds,
+        lockedPct: surebetProfitPct(trade.entryOdds, hedgeOdds),
       });
       trade.status = 'FIRST_LEG_OPENED';
       return;
     }
 
-    const hedgeOdds = 1 / slipped;
     const hedgeStake = computeHedgeStake(
       trade.stake,
       trade.entryOdds,

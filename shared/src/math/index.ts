@@ -40,6 +40,23 @@ export function computeTargetPrice(favoriteOdds: number, targetProfit = 0.05): n
   return oddsToPrice(computeTargetOdds(favoriteOdds, targetProfit));
 }
 
+/** True when 1/fav + 1/dog ≤ 1/(1+minProfit) — classic surebet with min locked profit */
+export function isSurebetReady(
+  favoriteOdds: number,
+  underdogOdds: number,
+  minProfit = 0.05,
+): boolean {
+  if (favoriteOdds <= 1 || underdogOdds <= 1) return false;
+  return 1 / favoriteOdds + 1 / underdogOdds <= 1 / (1 + minProfit);
+}
+
+/** Locked gross profit fraction if both legs fill at given odds (equalized payouts) */
+export function surebetProfitPct(favoriteOdds: number, underdogOdds: number): number | null {
+  const sum = 1 / favoriteOdds + 1 / underdogOdds;
+  if (sum <= 0 || sum >= 1) return null;
+  return 1 / sum - 1;
+}
+
 /**
  * Hedge stake so that win on either side ≈ targetProfit * firstStake (gross, pre-commission).
  * firstStake * favoriteOdds ≈ hedgeStake * hedgeOdds ≈ totalStakes * (1 + targetProfit) when balanced.

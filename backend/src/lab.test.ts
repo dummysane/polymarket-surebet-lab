@@ -92,7 +92,56 @@ describe('LiveSurebetArbitrageStrategy', () => {
     expect(signal).not.toBeNull();
     expect(signal!.entryOdds).toBeCloseTo(1 / 0.6, 5);
     expect(signal!.targetOdds).toBeCloseTo(computeTargetOdds(1 / 0.6, 0.05), 5);
-    expect(signal!.reason).toContain('LIVE SUREBET');
+    expect(signal!.reason).toContain('LIVE');
+    expect(signal!.arbPhase).toMatch(/F1_OPEN_FAVORITE|F3_COMPLETE_SUREBET/);
+    expect(signal!.action).toBe('OPEN_FIRST_LEG');
+  });
+
+  it('F2 waits when first leg open and underdog not ready', () => {
+    const strategy = new LiveSurebetArbitrageStrategy(cfg);
+    const market = makeMarket(0.6);
+    // underdog at 0.4 = odds 2.5; target for 1.667 fav ≈ 3.5, so not ready
+    const signal = strategy.evaluate({
+      market,
+      snapshots: [],
+      now: new Date().toISOString(),
+      mode: 'PAPER',
+      openFirstLeg: {
+        entryOdds: 1 / 0.6,
+        entrySide: 'YES',
+        targetOdds: computeTargetOdds(1 / 0.6, 0.05),
+        targetPrice: 1 / computeTargetOdds(1 / 0.6, 0.05),
+        tradeId: 't1',
+      },
+    });
+    expect(signal).not.toBeNull();
+    expect(signal!.arbPhase).toBe('F2_WAIT_UNDERDOG');
+    expect(signal!.action).toBe('MONITOR_UNDERDOG');
+  });
+
+  it('F3 completes when underdog reaches surebet', () => {
+    const strategy = new LiveSurebetArbitrageStrategy(cfg);
+    const market = makeMarket(0.6);
+    // Force underdog (NO) to surebet-ready price: target odds ~3.5 → price ~0.286
+    market.no.price = 0.28;
+    market.yes.price = 0.72;
+    const favOdds = 1.67;
+    const signal = strategy.evaluate({
+      market: { ...market, yes: { ...market.yes, price: 0.6 }, no: { ...market.no, price: 0.28 } },
+      snapshots: [],
+      now: new Date().toISOString(),
+      mode: 'PAPER',
+      openFirstLeg: {
+        entryOdds: favOdds,
+        entrySide: 'YES',
+        targetOdds: computeTargetOdds(favOdds, 0.05),
+        targetPrice: 1 / computeTargetOdds(favOdds, 0.05),
+        tradeId: 't2',
+      },
+    });
+    expect(signal).not.toBeNull();
+    expect(signal!.arbPhase).toBe('F3_COMPLETE_SUREBET');
+    expect(signal!.action).toBe('COMPLETE_SECOND_LEG');
   });
 
   it('rejects pre-match (not live)', () => {
