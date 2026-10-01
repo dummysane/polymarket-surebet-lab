@@ -1,0 +1,255 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Market {
+  id                  String   @id
+  eventId             String
+  conditionId         String?
+  slug                String?
+  question            String
+  sport               String
+  competition         String?
+  homeTeam            String?
+  awayTeam            String?
+  startTime           DateTime?
+  marketType          String
+  active              Boolean  @default(true)
+  closed              Boolean  @default(false)
+  resolved            Boolean  @default(false)
+  winningOutcome      String?
+  umaResolutionStatus String?
+  yesTokenId          String
+  noTokenId           String
+  volume              Float?
+  liquidity           Float?
+  lastPriceYes        Float?
+  lastPriceNo         Float?
+  updatedAt           DateTime @updatedAt
+  createdAt           DateTime @default(now())
+
+  snapshots   MarketSnapshot[]
+  signals     Signal[]
+  paperTrades PaperTrade[]
+
+  @@index([eventId])
+  @@index([sport, active])
+  @@index([closed, resolved])
+  @@map("markets")
+}
+
+model MarketSnapshot {
+  id        String   @id @default(cuid())
+  timestamp DateTime
+  marketId  String
+  eventId   String
+  tokenId   String
+  question  String
+  outcome   String
+  price     Float
+  bid       Float?
+  ask       Float?
+  spread    Float?
+  volume    Float?
+  liquidity Float?
+  dataKind  String   @default("OBSERVED")
+
+  market Market @relation(fields: [marketId], references: [id])
+
+  @@index([marketId, timestamp])
+  @@index([tokenId, timestamp])
+  @@index([timestamp])
+  @@map("market_snapshots")
+}
+
+model Strategy {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  configJson String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  signals     Signal[]
+  paperTrades PaperTrade[]
+
+  @@map("strategies")
+}
+
+model Signal {
+  id               String   @id @default(cuid())
+  strategyId       String
+  strategyName     String
+  marketId         String
+  eventId          String
+  timestamp        DateTime
+  side             String
+  entryPrice       Float
+  entryOdds        Float
+  expectedPrice    Float
+  targetOdds       Float
+  edge             Float
+  confidence       Float
+  recommendedStake Float
+  reason           String
+  distanceToTarget Float
+  dataKind         String   @default("ESTIMATED")
+  mode             String
+
+  strategy Strategy @relation(fields: [strategyId], references: [id])
+  market   Market   @relation(fields: [marketId], references: [id])
+
+  @@index([strategyName, timestamp])
+  @@index([marketId, timestamp])
+  @@map("signals")
+}
+
+model PaperTrade {
+  id               String   @id
+  strategyId       String?
+  strategyName     String
+  marketId         String
+  eventId          String
+  timestamp        DateTime
+  bankrollBefore   Float
+  stake            Float
+  entryPrice       Float
+  entryOdds        Float
+  entrySide        String
+  targetPrice      Float
+  targetOdds       Float
+  hedgeStake       Float?
+  hedgePrice       Float?
+  hedgeOdds        Float?
+  potentialProfit  Float?
+  potentialLoss    Float?
+  status           String
+  bankrollAfter    Float?
+  pnl              Float?
+  grossProfit      Float?
+  commission       Float?
+  netProfit        Float?
+  roi              Float?
+  totalVolume      Float?
+  slippage         Float?
+  executionDelayMs Int?
+  fillRatio        Float    @default(1)
+  maxPriceReached  Float?
+  timeToTargetMs   Int?
+  closeReason      String?
+  dataKind         String   @default("SIMULATED")
+  mode             String   @default("PAPER")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  strategy Strategy?         @relation(fields: [strategyId], references: [id])
+  market   Market            @relation(fields: [marketId], references: [id])
+  events   PaperTradeEvent[]
+  settlement Settlement?
+
+  @@index([strategyName, timestamp])
+  @@index([marketId])
+  @@index([status])
+  @@index([timestamp])
+  @@map("paper_trades")
+}
+
+model PaperTradeEvent {
+  id        String   @id @default(cuid())
+  tradeId   String
+  timestamp DateTime
+  type      String
+  payload   String
+  dataKind  String   @default("SIMULATED")
+
+  trade PaperTrade @relation(fields: [tradeId], references: [id])
+
+  @@index([tradeId, timestamp])
+  @@map("paper_trade_events")
+}
+
+model BankrollSnapshot {
+  id        String   @id @default(cuid())
+  timestamp DateTime
+  bankroll  Float
+  pnl       Float
+  exposed   Float
+  available Float
+  mode      String
+  dataKind  String   @default("SIMULATED")
+
+  @@index([timestamp])
+  @@map("bankroll_snapshots")
+}
+
+model Settlement {
+  id             String   @id @default(cuid())
+  tradeId        String   @unique
+  marketId       String
+  settledAt      DateTime
+  winningOutcome String?
+  pnl            Float
+  reason         String
+  dataKind       String   @default("REALIZED")
+
+  trade PaperTrade @relation(fields: [tradeId], references: [id])
+
+  @@index([marketId, settledAt])
+  @@map("settlements")
+}
+
+model SimulationRun {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  seed       Int
+  paramsJson String
+  kind       String   @default("MONTE_CARLO")
+
+  results SimulationResult[]
+
+  @@map("simulation_runs")
+}
+
+model SimulationResult {
+  id        String @id @default(cuid())
+  runId     String
+  resultJson String
+
+  run SimulationRun @relation(fields: [runId], references: [id])
+
+  @@index([runId])
+  @@map("simulation_results")
+}
+
+model Alert {
+  id        String   @id @default(cuid())
+  timestamp DateTime @default(now())
+  type      String
+  severity  String   @default("info")
+  message   String
+  payload   String?
+  read      Boolean  @default(false)
+
+  @@index([timestamp])
+  @@index([type])
+  @@map("alerts")
+}
+
+model DataQualityEvent {
+  id        String   @id @default(cuid())
+  timestamp DateTime @default(now())
+  marketId  String?
+  valid     Boolean
+  stale     Boolean
+  issues    String
+  latencyMs Int?
+
+  @@index([timestamp])
+  @@index([marketId, timestamp])
+  @@map("data_quality_events")
+}

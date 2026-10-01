@@ -1,0 +1,15 @@
+node_modules/
+dist/
+build/
+.env
+*.log
+.DS_Store
+coverage/
+.vite/
+*.tsbuildinfo
+exports/
+tmp/
+.idea/
+.vscode/
+database/prisma/*.db
+database/prisma/*.db-journal

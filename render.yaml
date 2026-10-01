@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: polymarket-surebet-lab
+    runtime: docker
+    plan: free
+    region: frankfurt
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MARKET_DATA_MODE
+        value: live
+      - key: LIVE_ONLY
+        value: "true"
+      - key: MIN_ODDS
+        value: "1.60"
+      - key: MAX_ODDS
+        value: "1.80"
+      - key: TARGET_PROFIT
+        value: "0.05"
+      - key: INITIAL_BANKROLL
+        value: "2000"
+      - key: STAKE_PERCENTAGE
+        value: "0.02"
+      - key: SEED
+        value: "20261001"
+      - key: REAL_EXECUTION_ENABLED
+        value: "false"
+      - key: LOG_LEVEL
+        value: info

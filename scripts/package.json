@@ -1,0 +1,9 @@
+{
+  "name": "@paperlab/scripts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "seed-sample": "node ./generate_sample_csv.mjs"
+  }
+}

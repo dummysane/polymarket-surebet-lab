@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #0b0d10;
+  --panel: #12151a;
+  --border: #1e2430;
+  --text: #d7dde8;
+  --muted: #7a8494;
+  --pos: #3ecf8e;
+  --neg: #f07178;
+  --accent: #6b8cff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "IBM Plex Sans", sans-serif;
+}
+
+.mono {
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+.pos {
+  color: var(--pos);
+}
+
+.neg {
+  color: var(--neg);
+}
+
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+table.data th,
+table.data td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+table.data th {
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.badge.live { color: #8ab4ff; border-color: #2a3b5c; }
+.badge.paper { color: #c4b5fd; border-color: #3b2f5c; }
+.badge.backtest { color: #fcd34d; border-color: #5c4a1e; }
+.badge.simulation { color: #86efac; border-color: #1e3d2f; }

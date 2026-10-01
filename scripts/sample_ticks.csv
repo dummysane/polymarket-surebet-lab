@@ -1,0 +1,17 @@
+timestamp,market_id,outcome,price,bid,ask,volume,liquidity,event_id,question
+2026-10-01T10:00:00.000Z,bt-1,YES,0.66,0.65,0.67,10000,5000,ev-1,Team Alpha vs Team Beta
+2026-10-01T10:00:00.000Z,bt-1,NO,0.34,0.33,0.35,9000,4000,ev-1,Team Alpha vs Team Beta
+2026-10-01T10:00:01.000Z,bt-1,YES,0.65,0.64,0.66,10000,5000,ev-1,Team Alpha vs Team Beta
+2026-10-01T10:00:01.000Z,bt-1,NO,0.35,0.34,0.36,9000,4000,ev-1,Team Alpha vs Team Beta
+2026-10-01T10:00:02.000Z,bt-1,YES,0.64,0.63,0.65,10000,4800,ev-1,Team Alpha vs Team Beta
+2026-10-01T10:00:02.000Z,bt-1,NO,0.32,0.31,0.33,9000,4200,ev-1,Team Alpha vs Team Beta
+2026-10-01T10:00:03.000Z,bt-1,YES,0.655,0.64,0.66,11000,5100,ev-1,Team Alpha vs Team Beta
+2026-10-01T10:00:03.000Z,bt-1,NO,0.30,0.29,0.31,9500,4500,ev-1,Team Alpha vs Team Beta
+2026-10-01T10:00:04.000Z,bt-1,YES,0.66,0.65,0.67,11000,5200,ev-1,Team Alpha vs Team Beta
+2026-10-01T10:00:04.000Z,bt-1,NO,0.286,0.28,0.29,9800,4600,ev-1,Team Alpha vs Team Beta
+2026-10-01T10:00:05.000Z,bt-1,YES,0.66,0.65,0.67,12000,5300,ev-1,Team Alpha vs Team Beta
+2026-10-01T10:00:05.000Z,bt-1,NO,0.28,0.27,0.285,10000,4700,ev-1,Team Alpha vs Team Beta
+2026-10-01T10:00:00.000Z,bt-2,YES,0.58,0.57,0.59,8000,3000,ev-2,Player Prop MOCK
+2026-10-01T10:00:00.000Z,bt-2,NO,0.42,0.41,0.43,7000,2800,ev-2,Player Prop MOCK
+2026-10-01T10:00:05.000Z,bt-2,YES,0.57,0.56,0.58,8000,3000,ev-2,Player Prop MOCK
+2026-10-01T10:00:05.000Z,bt-2,NO,0.40,0.39,0.41,7000,2800,ev-2,Player Prop MOCK

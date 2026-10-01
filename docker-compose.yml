@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: paperlab-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: paperlab
+      POSTGRES_PASSWORD: paperlab
+      POSTGRES_DB: paperlab
+    ports:
+      - "5432:5432"
+    volumes:
+      - paperlab_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paperlab -d paperlab"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  paperlab_pg_data:
